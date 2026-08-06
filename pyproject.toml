@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "actionwise-data"
+version = "0.1.0"
+description = "ActionWise readiness indices — RHI, PGI, PRI, ACI — from EU and US preparedness surveys"
+requires-python = ">=3.11,<3.13"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = ["ignore::DeprecationWarning"]

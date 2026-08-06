@@ -1,0 +1,59 @@
+"""Phase 0 smoke tests — the environment and the raw source are what we think.
+
+These are deliberately about *facts*, not code behaviour. `virality-code` shipped a
+model trained on Faker text because nobody asserted anything about the input.
+"""
+import pytest
+
+from actionwise import config
+
+
+def test_raw_store_is_outside_the_repo():
+    """Raw data lives in RNCP/dati/ and is never written to by this project."""
+    assert config.DATA_RAW.name == "dati"
+    assert config.DATA_RAW.exists(), f"raw store missing: {config.DATA_RAW}"
+    assert config.ROOT not in config.DATA_RAW.parents
+
+
+def test_eb547_source_present():
+    assert config.EB547_SAV.exists(), (
+        f"{config.EB547_SAV} not found. Download ZA8841 from GESIS "
+        "(access.gesis.org/dbk/78792) into the dati/ folder."
+    )
+
+
+def test_eb547_shape_is_as_verified():
+    """The file is the one this project was designed against, not a different wave."""
+    pyreadstat = pytest.importorskip("pyreadstat")
+    _, meta = pyreadstat.read_sav(str(config.EB547_SAV), metadataonly=True)
+    assert (meta.number_rows, meta.number_columns) == config.EB547_EXPECTED_SHAPE
+
+
+def test_every_variable_the_design_depends_on_exists():
+    """Fail loudly now rather than producing a silently empty column later."""
+    pyreadstat = pytest.importorskip("pyreadstat")
+    _, meta = pyreadstat.read_sav(str(config.EB547_SAV), metadataonly=True)
+    present = set(meta.column_names)
+
+    required = (
+        set(config.QC6_ITEMS)
+        | set(config.QC7_DOMAINS)
+        | set(config.QC5_ITEMS)
+        | set(config.QC8_ITEMS)
+        | set(config.DEMOGRAPHIC_ITEMS)
+        | set(config.ID_VARS)
+        | {
+            config.QC6_OTHER,
+            config.QC6_DK,
+            config.QC6_TOTAL,
+            config.WEIGHT_NATIONAL,
+            config.WEIGHT_EU,
+            config.WEIGHT_EU27_LEGACY,
+        }
+    )
+    missing = sorted(required - present)
+    assert not missing, f"variables named in config are absent from the .sav: {missing}"
+
+
+def test_duckdb_client_importable():
+    from actionwise.db.duckdb_client import get_connection  # noqa: F401
