@@ -13,14 +13,7 @@ import pytest
 DASHBOARD = Path(__file__).resolve().parents[1] / "dashboard"
 
 # Modules that define or compute an index. The dashboard may not import them.
-# Both projects, on the same rule: project #2 adds a whole second pipeline, and
-# an unguarded dashboard would be free to recompute travel times in the browser
-# and drift from the tables the scripts wrote.
-FORBIDDEN_PREFIXES = (
-    "actionwise.indices", "actionwise.models", "actionwise.data",
-    "actionwise_geo.indices", "actionwise_geo.models", "actionwise_geo.data",
-    "actionwise_geo.network", "actionwise_geo.validate",
-)
+FORBIDDEN_PREFIXES = ("actionwise.indices", "actionwise.models", "actionwise.data")
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -64,54 +57,11 @@ def test_dashboard_does_not_read_raw_or_processed_files(path: Path):
         )
 
 
-def test_project_two_pages_are_imported_lazily_and_conditionally():
-    """Removing project #2 must not half-break the shared app.
-
-    `geo_pages` may only be imported from inside a function guarded by a table
-    check. A module-level import would make `app.py` fail outright the moment
-    `actionwise_geo` or the geo extra is removed — the same reasoning that keeps
-    the FEMA phase deletable.
-    """
-    app = DASHBOARD / "app.py"
-    tree = ast.parse(app.read_text(encoding="utf-8"), filename=str(app))
-
-    top_level = {
-        alias.name
-        for node in tree.body
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-        for alias in getattr(node, "names", [])
-    } | {
-        node.module
-        for node in tree.body
-        if isinstance(node, ast.ImportFrom) and node.module
-    }
-    assert not any("geo_pages" in str(name) for name in top_level), (
-        "geo_pages must not be imported at module level — app.py would then fail "
-        "to start once project #2 is removed"
-    )
-
-    imports_geo = [
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom) and node.module
-        and "geo_pages" in node.module
-    ]
-    assert imports_geo, "app.py never registers the project #2 pages"
-
-    guarded = [
-        node for node in ast.walk(tree)
-        if isinstance(node, ast.If)
-        and any(child in imports_geo for child in ast.walk(node))
-    ]
-    assert guarded, "the geo_pages import must sit inside a conditional"
-
-
 def test_dashboard_opens_duckdb_read_only():
     """Every connection the dashboard opens must be read-only.
 
     Asserted against wherever `duckdb.connect` actually appears rather than
-    against one named file: the accessor moved to `_db.py` when project #2's
-    pages needed it too, and a test pinned to `app.py` would have gone green
-    while checking nothing.
+    against one named file, since the accessor lives in `_db.py`.
     """
     opens = [
         path for path in dashboard_files()

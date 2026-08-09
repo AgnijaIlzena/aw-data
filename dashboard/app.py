@@ -37,9 +37,8 @@ MUTED = "#64748b"
 
 # ── data access — the only way this file touches data ──────────────────────
 
-# Defined once in dashboard/_db.py and shared with the project #2 pages, so the
-# two cannot drift into slightly different accessors. Re-exported here because
-# every page below already calls them by these names.
+# Defined once in dashboard/_db.py, re-exported here because every page below
+# already calls them by these names.
 from dashboard._db import available_tables, q, require  # noqa: E402
 
 
@@ -616,14 +615,6 @@ def main() -> None:
     if "fema_aci" in tables:
         # Optional Phase 11 — appears only once its tables are built.
         pages["US comparison (FEMA)"] = page_fema
-
-    # Project #2 (Time-to-Help). Registered the same way: the pages appear once
-    # the geo_* tables exist and vanish cleanly if they are dropped, so removing
-    # project #2 cannot half-break this UI.
-    if any(name.startswith("geo_") for name in tables):
-        from dashboard.geo_pages import GEO_PAGES
-
-        pages.update(GEO_PAGES)
 
     choice = st.sidebar.radio("Page", list(pages), label_visibility="collapsed")
     st.sidebar.divider()

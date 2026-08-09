@@ -1,8 +1,7 @@
-"""The dashboard's only route to data — shared by both projects' pages.
+"""The dashboard's only route to data.
 
-Extracted so `app.py` and `geo_pages.py` cannot drift into two slightly different
-accessors. There is one connection helper, it is read-only, and nothing here
-computes anything.
+There is one connection helper, it is read-only, and nothing here computes
+anything.
 """
 from __future__ import annotations
 

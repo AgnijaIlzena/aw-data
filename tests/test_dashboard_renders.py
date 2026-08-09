@@ -83,66 +83,6 @@ def test_zero_weights_are_handled_not_crashed():
     assert any("at least one weight" in w.value.lower() for w in at.warning)
 
 
-# ── project #2 pages, registered conditionally ─────────────────────────────
-
-GEO_PAGES = [
-    "Time-to-Help",
-    "Legal coverage",
-    "Preparedness × Proximity",
-    "Traffic",
-    "Validation",
-    "Method — Time-to-Help",
-]
-
-
-def _geo_available() -> bool:
-    import duckdb
-
-    con = duckdb.connect(str(DUCKDB_PATH), read_only=True)
-    try:
-        names = con.execute("SELECT table_name FROM duckdb_tables()").fetchdf()
-    finally:
-        con.close()
-    return any(str(n).startswith("geo_") for n in names["table_name"])
-
-
-needs_geo = pytest.mark.skipif(
-    not DUCKDB_PATH.exists() or not _geo_available(),
-    reason="project #2 tables not built — run scripts/run_geo_*.py",
-)
-
-
-@needs_geo
-@pytest.mark.parametrize("page", GEO_PAGES)
-def test_each_geo_page_renders(page: str):
-    at = _run(page)
-    assert not at.exception, f"{page} raised: {[str(e) for e in at.exception]}"
-
-
-@needs_geo
-def test_geo_pages_are_registered_alongside_project_one():
-    """Both projects share one app; neither may displace the other."""
-    at = _run()
-    listed = set(at.radio[0].options)
-    assert set(PAGES) <= listed, "project #1's pages must survive"
-    assert set(GEO_PAGES) <= listed, "project #2's pages must appear"
-
-
-@needs_geo
-def test_the_matrix_page_states_the_axes_run_opposite_ways():
-    """The finding inverts the project's original pitch — it must not be quiet."""
-    at = _run("Preparedness × Proximity")
-    shown = " ".join(e.value for e in at.error) + " ".join(c.value for c in at.caption)
-    assert "opposite" in shown.lower()
-
-
-@needs_geo
-def test_the_validation_page_declares_the_null_result():
-    at = _run("Validation")
-    text = " ".join(w.value for w in at.warning)
-    assert "null" in text.lower(), "a null result must be stated, not omitted"
-
-
 def test_drivers_page_states_the_capability_vs_information_ranking():
     """The one number in this dashboard most likely to be quoted at the defence."""
     at = _run("What predicts the gap")
