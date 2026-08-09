@@ -20,7 +20,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from actionwise.config import DUCKDB_PATH, RESILIENCE_TARGET_DAYS
+from actionwise.config import (
+    COUNTRY_NAMES,
+    DUCKDB_PATH,
+    FOCUS_COUNTRIES,
+    RESILIENCE_TARGET_DAYS,
+)
 
 st.set_page_config(page_title="ActionWise — Readiness", page_icon="🛟", layout="wide")
 
@@ -32,30 +37,10 @@ MUTED = "#64748b"
 
 # ── data access — the only way this file touches data ──────────────────────
 
-@st.cache_data(show_spinner="Reading DuckDB…")
-def q(sql: str) -> pd.DataFrame:
-    """Run a read-only query against the shared cache."""
-    con = duckdb.connect(str(DUCKDB_PATH), read_only=True)
-    try:
-        return con.execute(sql).fetchdf()
-    finally:
-        con.close()
-
-
-@st.cache_data
-def available_tables() -> set[str]:
-    return set(q("SELECT table_name FROM duckdb_tables()")["table_name"])
-
-
-def require(*tables: str) -> bool:
-    missing = [t for t in tables if t not in available_tables()]
-    if missing:
-        st.warning(
-            f"Missing table(s): {', '.join(missing)}. Run the pipeline scripts first — "
-            "see the README."
-        )
-        return False
-    return True
+# Defined once in dashboard/_db.py and shared with the project #2 pages, so the
+# two cannot drift into slightly different accessors. Re-exported here because
+# every page below already calls them by these names.
+from dashboard._db import available_tables, q, require  # noqa: E402
 
 
 def pct(v: float) -> str:
@@ -103,7 +88,7 @@ def page_overview() -> None:
             labels={"weighted_share": "share of observations", "cell": ""},
         )
         fig.update_layout(showlegend=False, height=320, margin=dict(t=10, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption(
             "**gap** = saw information, did not act. The largest single cell, and the "
             "addressable one."
@@ -120,16 +105,22 @@ def page_overview() -> None:
         )
         fig.update_layout(showlegend=False, height=560, margin=dict(t=10, b=10),
                           yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 def page_gap() -> None:
     st.title("Which measures information actually converts")
-    if not require("gap_table_eu", "gap_table_lv"):
+    if not require("gap_table_eu"):
         return
 
-    scope = st.radio("Scope", ["EU", "Latvia"], horizontal=True)
-    table = q(f"SELECT * FROM gap_table_{'eu' if scope == 'EU' else 'lv'} ORDER BY conversion DESC")
+    tables = available_tables()
+    scopes = {"EU": "gap_table_eu"} | {
+        COUNTRY_NAMES.get(c, c): f"gap_table_{c.lower()}"
+        for c in FOCUS_COUNTRIES
+        if f"gap_table_{c.lower()}" in tables
+    }
+    scope = st.radio("Scope", list(scopes), horizontal=True)
+    table = q(f"SELECT * FROM {scopes[scope]} ORDER BY conversion DESC")
 
     st.subheader("Conversion versus lift")
     st.caption(
@@ -146,7 +137,7 @@ def page_gap() -> None:
     fig.update_traces(textposition="top center", textfont_size=10)
     fig.add_hline(y=1.0, line_dash="dot", line_color=MUTED)
     fig.update_layout(height=520, margin=dict(t=20, b=10), coloraxis_showscale=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.subheader("Per measure")
     show = table[["label", "pct_did_overall", "pct_did_if_aware", "pct_did_if_not_aware",
@@ -155,7 +146,106 @@ def page_gap() -> None:
         show[c] = show[c].map(pct)
     show["lift"] = table["lift"].map(lambda v: "—" if pd.isna(v) else f"{v:.2f}×")
     show.columns = ["Measure", "Did it", "Did it (aware)", "Did it (unaware)", "Gap", "Lift"]
-    st.dataframe(show, use_container_width=True, hide_index=True)
+    st.dataframe(show, width="stretch", hide_index=True)
+
+
+# Which barrier a SHAP feature belongs to — used only to colour the chart, so
+# "capability vs information" reads at a glance rather than needing the legend.
+_DRIVER_GROUPS = {
+    "prep_no_time_or_money": "capability barrier",
+    "prep_needs_more_info": "information barrier",
+    "info_feels_informed": "information barrier",
+    "info_trusts_official_info": "information barrier",
+    "info_info_easy_to_find": "information barrier",
+    "info_knows_where_abroad": "information barrier",
+}
+_DRIVER_COLOURS = {
+    "capability barrier": WARN,
+    "information barrier": ACCENT,
+    "other": MUTED,
+}
+
+
+def page_drivers() -> None:
+    st.title("What predicts the gap")
+    st.caption(
+        "Not how big the gap is — Phase 3 answers that — but *why* someone sits in "
+        "it. Two candidate explanations are measured separately by the survey: "
+        "**qc8_3**, no time or money to prepare, and **qc8_5**, needs more "
+        "information. They imply opposite products, so telling them apart matters."
+    )
+    if not require("gap_shap", "gap_model_comparison"):
+        return
+
+    comparison = q("SELECT * FROM gap_model_comparison")
+    full = comparison[comparison["model"] == "full model"].iloc[0]
+    demo = comparison[comparison["model"] == "demographics only"].iloc[0]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Full model, R²", f"{full['r2_oof']:.3f}",
+              help="Out-of-fold — the model never saw these rows during training")
+    c2.metric("Demographics only, R²", f"{demo['r2_oof']:.3f}",
+              help="Worse than guessing the average — demographics alone explain nothing")
+    c3.metric("Mean predictor, R²", "0.000", help="The honest floor, by definition")
+    st.caption(
+        "**Tested on countries the model never trained on.** 5-fold cross-validation, "
+        "grouped by country rather than split at random, so a country's whole data "
+        "is held out in each round and predicted blind. The R² above is computed only "
+        "from those held-out predictions — never from data the model was trained on. "
+        "Demographics alone score *below* zero, i.e. worse than a flat average; only "
+        "adding the barrier and attitude questions makes the model useful."
+    )
+
+    st.subheader("Every model beside its baseline")
+    shown = comparison.copy()
+    shown["r2_oof"] = shown["r2_oof"].map("{:.4f}".format)
+    shown["mae_oof"] = shown["mae_oof"].map("{:.4f}".format)
+    st.dataframe(shown, width="stretch", hide_index=True)
+
+    st.divider()
+    st.subheader("Ranked by SHAP — how much each factor moves the prediction")
+    st.caption(
+        "SHAP opens the model back up after fitting: for every prediction, it "
+        "assigns each feature a share of the credit or blame. The bars are the "
+        "average size of that contribution, ranked — this is what turns a black-box "
+        "prediction into a stated, checkable finding."
+    )
+    shap_tbl = q("SELECT * FROM gap_shap ORDER BY mean_abs_shap DESC")
+    shap_tbl["rank"] = range(1, len(shap_tbl) + 1)
+    shap_tbl["group"] = shap_tbl["feature"].map(_DRIVER_GROUPS).fillna("other")
+
+    fig = px.bar(
+        shap_tbl.sort_values("mean_abs_shap"), x="mean_abs_shap", y="feature",
+        orientation="h", color="group",
+        color_discrete_map=_DRIVER_COLOURS,
+        labels={"mean_abs_shap": "mean |SHAP value|  (average influence on the prediction)",
+               "feature": "", "group": ""},
+    )
+    fig.update_layout(height=620, margin=dict(t=10, b=10), legend=dict(orientation="h", y=1.05))
+    st.plotly_chart(fig, width="stretch")
+
+    capability_rank = int(shap_tbl.loc[shap_tbl["feature"] == "prep_no_time_or_money", "rank"].iloc[0])
+    info_rank = int(shap_tbl.loc[shap_tbl["feature"] == "prep_needs_more_info", "rank"].iloc[0])
+    st.info(
+        f"**Capability ranks {capability_rank} of {len(shap_tbl)}. Information ranks "
+        f"{info_rank}.** People are not mostly stuck for want of a leaflet — a better "
+        "guide will not close this gap on its own. Cheaper kit, reminders, or "
+        "community provision are the products that match what the data says."
+    )
+
+    if "gap_barrier_direction" in available_tables():
+        st.subheader("The two barriers, head to head")
+        direction = q("SELECT * FROM gap_barrier_direction")
+        show = direction.copy()
+        show["spread_agree_minus_disagree"] = show["spread_agree_minus_disagree"].map(pct)
+        show.columns = ["Barrier", "Feature", "Gap, agree vs disagree"]
+        st.dataframe(show, width="stretch", hide_index=True)
+        st.caption(
+            "Among people who agree they lack time or money, the gap runs "
+            f"{direction.iloc[0]['spread_agree_minus_disagree']:.1%} wider than among "
+            "those who disagree — more than double the same comparison for "
+            "'needs more information'. Same conclusion, seen a second way."
+        )
 
 
 def page_rhi() -> None:
@@ -179,7 +269,7 @@ def page_rhi() -> None:
                      color_discrete_map={"EU": MUTED, "Latvia": ACCENT},
                      labels={"share": "share of households", "label": ""})
         fig.update_layout(height=380, margin=dict(t=10, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with right:
         st.subheader("Which lifeline runs out first")
@@ -189,7 +279,7 @@ def page_rhi() -> None:
                      labels={"share_binding": "share of households where it binds", "domain": ""})
         fig.update_layout(height=380, margin=dict(t=10, b=10),
                           yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption(
             "Water and power are ~91% of all binding constraints. Food is under 2% — "
             "yet food is the most commonly stockpiled item."
@@ -210,7 +300,7 @@ def page_rhi() -> None:
     fig.update_layout(barmode="stack", height=620, margin=dict(t=10, b=10),
                       yaxis={"categoryorder": "total ascending"},
                       xaxis_title="share of households below target")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def page_item_bank() -> None:
@@ -232,7 +322,7 @@ def page_item_bank() -> None:
     )
     fig.update_traces(textposition="top center", textfont_size=10)
     fig.update_layout(height=480, margin=dict(t=20, b=10), coloraxis_showscale=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.subheader("The battery measures two things, not one")
     dims = q("SELECT * FROM item_dimensionality")
@@ -251,50 +341,92 @@ def page_item_bank() -> None:
     st.subheader("Item fit")
     fit = q("SELECT f.item, b.label, f.infit, f.outfit, f.misfitting "
             "FROM item_fit f JOIN item_bank b USING (item) ORDER BY f.outfit")
-    st.dataframe(fit, use_container_width=True, hide_index=True)
+    st.dataframe(fit, width="stretch", hide_index=True)
     st.caption("Productive range is 0.5–1.5. All 13 items fall inside it.")
 
 
-def page_latvia() -> None:
-    st.title("Latvia versus Europe")
-    if not require("holdout_transfer", "holdout_difficulty_compare", "pri_percentiles_lv"):
+def page_country() -> None:
+    st.title("Country versus Europe")
+    if not require("holdout_transfer", "holdout_difficulty_compare"):
         return
 
-    t = q("SELECT * FROM holdout_transfer").iloc[0]
+    transfer = q("SELECT * FROM holdout_transfer")
+    available = [c for c in FOCUS_COUNTRIES if c in set(transfer["country"])]
+    if not available:
+        st.warning("No focus country has been scored yet — run scripts/run_holdout.py.")
+        return
+
+    iso = st.radio(
+        "Country", available, horizontal=True,
+        format_func=lambda c: COUNTRY_NAMES.get(c, c),
+    )
+    name = COUNTRY_NAMES.get(iso, iso)
+    t = transfer[transfer["country"] == iso].iloc[0]
+
     c1, c2, c3 = st.columns(3)
     c1.metric("θ correlation", f"{t['theta_correlation']:.4f}",
-              help="Pooled bank (EU without Latvia) vs a Latvia-only bank")
+              help=f"Pooled bank (EU without {name}) vs a {name}-only bank")
     c2.metric("Mean |PRI difference|", f"{t['mean_abs_pri_difference']:.2f} pts")
-    c3.metric("Latvian respondents", f"{int(t['n_target']):,}")
-    st.success(
-        "A bank calibrated without Latvia ranks Latvians essentially as their own bank "
-        "would, so pooling all of Europe to estimate the item parameters is justified — "
-        "which matters because 1,008 respondents cannot calibrate 13 items alone."
-    )
+    c3.metric(f"{name} respondents", f"{int(t['n_target']):,}")
 
-    st.subheader("Where Latvia genuinely differs")
-    comp = q("SELECT * FROM holdout_difficulty_compare ORDER BY delta")
+    if bool(t["passes_transfer"]):
+        st.success(
+            f"A bank calibrated without {name} ranks its respondents essentially as "
+            "their own bank would, so pooling all of Europe to estimate the item "
+            f"parameters is justified — which matters because {int(t['n_target']):,} "
+            "respondents cannot calibrate 13 items alone."
+        )
+    else:
+        st.error(
+            f"Pooled and native scores diverge for {name}. The items do not behave the "
+            "same way there, and the pooled bank should not be used unexamined."
+        )
+
+    # The transfer quality is itself comparable across countries, and the
+    # difference is a finding: the same method does not fit every country equally.
+    if len(available) > 1:
+        with st.expander("How well does pooling transfer, country by country?"):
+            side = transfer[transfer["country"].isin(available)][
+                ["country", "n_target", "theta_correlation", "theta_rank_correlation",
+                 "difficulty_correlation", "mean_abs_pri_difference", "passes_transfer"]
+            ].round(4)
+            st.dataframe(side, width="stretch", hide_index=True)
+            best = transfer.loc[transfer["theta_correlation"].idxmax(), "country"]
+            st.caption(
+                f"All pass the 0.95 threshold, but not equally — {COUNTRY_NAMES.get(best, best)} "
+                "transfers most cleanly. A lower correlation means that country's "
+                "preparedness items sit in a different order than the European average, "
+                "so its scores lean more on the pooled bank's assumptions."
+            )
+
+    st.subheader(f"Where {name} genuinely differs")
+    comp = q(f"SELECT * FROM holdout_difficulty_compare WHERE country = '{iso}' ORDER BY delta")
     fig = px.bar(
         comp, x="delta", y="label", orientation="h",
-        color=comp["delta"].lt(0).map({True: "Easier in Latvia", False: "Harder in Latvia"}),
-        color_discrete_map={"Easier in Latvia": GOOD, "Harder in Latvia": WARN},
+        color=comp["delta"].lt(0).map({True: f"Easier in {name}", False: f"Harder in {name}"}),
+        color_discrete_map={f"Easier in {name}": GOOD, f"Harder in {name}": WARN},
         labels={"delta": "difficulty difference (native − pooled)", "label": ""},
     )
     fig.update_layout(height=460, margin=dict(t=10, b=10), legend_title="")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     st.caption(
-        "Latvians prepare socially and informally — neighbours, family contact, documents — "
-        "and skip institutional channels: training, official alerts, formal home protection."
+        "Negative means the action is *more common* there than the European average, "
+        "positive means rarer. This is the shape of a country's preparedness culture, "
+        "not its overall level."
     )
 
     st.subheader("PRI percentiles — the benchmark the product shows")
-    lv = q("SELECT * FROM pri_percentiles_lv")
-    st.dataframe(lv, use_container_width=True, hide_index=True)
-    if bool(lv["thin_cell"].any()):
-        st.warning(
-            "Age bands flagged `thin_cell` are built on fewer than 100 respondents. "
-            "Show the national figure there instead of the band."
-        )
+    table_name = f"pri_percentiles_{iso.lower()}"
+    if table_name in available_tables():
+        pct_table = q(f"SELECT * FROM {table_name}")
+        st.dataframe(pct_table, width="stretch", hide_index=True)
+        if bool(pct_table["thin_cell"].any()):
+            st.warning(
+                "Age bands flagged `thin_cell` are built on fewer than 100 effective "
+                "respondents. Show the national figure there instead of the band."
+            )
+    else:
+        st.info(f"`{table_name}` not built yet — run scripts/run_holdout.py.")
 
 
 def page_composite() -> None:
@@ -362,7 +494,7 @@ def page_composite() -> None:
         )
         fig.update_layout(showlegend=False, height=640, margin=dict(t=10, b=10),
                           yaxis={"categoryorder": "total ascending"})
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 def page_fema() -> None:
@@ -384,7 +516,7 @@ def page_fema() -> None:
     fig.update_traces(textposition="top center", textfont_size=10)
     fig.add_hline(y=1.0, line_dash="dot", line_color=MUTED)
     fig.update_layout(height=480, margin=dict(t=20, b=10), coloraxis_showscale=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     if "fema_stage_of_change" in available_tables():
         st.subheader("Stage of change")
@@ -393,7 +525,7 @@ def page_fema() -> None:
                      color_discrete_sequence=[ACCENT],
                      labels={"share": "share of households", "label": ""})
         fig.update_layout(height=320, margin=dict(t=10, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         st.caption(
             "A validated intention→action ladder with no EB547 equivalent — the "
             "empirical grounding for the avatar's progression."
@@ -405,7 +537,7 @@ def page_fema() -> None:
             "**Comparison only, never pooled.** FEMA measures a 12-month flow; EB547 "
             "measures a lifetime stock. Directions are comparable; levels are not."
         )
-        st.dataframe(q("SELECT * FROM fema_eu_comparison"), use_container_width=True,
+        st.dataframe(q("SELECT * FROM fema_eu_comparison"), width="stretch",
                      hide_index=True)
 
     st.info(
@@ -425,7 +557,7 @@ def page_method() -> None:
     )
     if "gap_model_comparison" in available_tables():
         st.subheader("Driver model against its baselines")
-        st.dataframe(q("SELECT * FROM gap_model_comparison"), use_container_width=True,
+        st.dataframe(q("SELECT * FROM gap_model_comparison"), width="stretch",
                      hide_index=True)
         st.caption(
             "Grouped 5-fold CV by country. Demographics alone score *below* the mean "
@@ -433,7 +565,7 @@ def page_method() -> None:
         )
     if "rhi_model_summary" in available_tables():
         st.subheader("Ordered probit on the horizon bands")
-        st.dataframe(q("SELECT * FROM rhi_model_summary"), use_container_width=True,
+        st.dataframe(q("SELECT * FROM rhi_model_summary"), width="stretch",
                      hide_index=True)
         st.caption("Two of five domains do not beat their baseline. Reported, not hidden.")
 
@@ -461,9 +593,10 @@ def page_method() -> None:
 PAGES = {
     "Overview": page_overview,
     "The gap": page_gap,
+    "What predicts the gap": page_drivers,
     "Resilience horizon": page_rhi,
     "Item bank": page_item_bank,
-    "Latvia vs Europe": page_latvia,
+    "Country vs Europe": page_country,
     "Composite (live weights)": page_composite,
     "Method & limitations": page_method,
 }
@@ -473,10 +606,24 @@ def main() -> None:
     st.sidebar.title("🛟 ActionWise")
     st.sidebar.caption("Readiness indices from Eurobarometer ZA8841")
 
+    if not DUCKDB_PATH.exists():
+        st.error(f"No database at {DUCKDB_PATH}. Run `python scripts/run_pipeline.py` first.")
+        return
+
     pages = dict(PAGES)
-    if DUCKDB_PATH.exists() and "fema_aci" in available_tables():
+    tables = available_tables()
+
+    if "fema_aci" in tables:
         # Optional Phase 11 — appears only once its tables are built.
         pages["US comparison (FEMA)"] = page_fema
+
+    # Project #2 (Time-to-Help). Registered the same way: the pages appear once
+    # the geo_* tables exist and vanish cleanly if they are dropped, so removing
+    # project #2 cannot half-break this UI.
+    if any(name.startswith("geo_") for name in tables):
+        from dashboard.geo_pages import GEO_PAGES
+
+        pages.update(GEO_PAGES)
 
     choice = st.sidebar.radio("Page", list(pages), label_visibility="collapsed")
     st.sidebar.divider()
@@ -484,9 +631,6 @@ def main() -> None:
         "Every figure is read from DuckDB. This dashboard never recomputes an index — "
         "the pipeline is the only place they are defined."
     )
-    if not DUCKDB_PATH.exists():
-        st.error(f"No database at {DUCKDB_PATH}. Run `python scripts/run_pipeline.py` first.")
-        return
     pages[choice]()
 
 

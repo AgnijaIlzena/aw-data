@@ -8,10 +8,46 @@ version = "0.1.0"
 description = "ActionWise readiness indices — RHI, PGI, PRI, ACI — from EU and US preparedness surveys"
 requires-python = ">=3.11,<3.13"
 
+# Project #2 (Time-to-Help) dependencies are OPTIONAL on purpose. The geo stack is
+# the least stable dependency tree in this repo — `cykhash`, which pyrosm needs,
+# ships no wheels for any platform and must compile. Keeping it out of the core
+# means a failed geo install can never stop run_pipeline.py or the survey tests.
+#
+#     pip install -e ".[geo]"
+#
+# All pinned floors have verified cp311 win_amd64 wheels except cykhash (source
+# only; builds against MSVC Build Tools 14.44, confirmed present on this machine).
+[project.optional-dependencies]
+geo = [
+    "geopandas>=1.0",
+    "shapely>=2.1",
+    "pyproj>=3.7",
+    "pyogrio>=0.10",
+    "networkx>=3.3",
+    "pyrosm>=0.13.1",
+    "openpyxl>=3.1",   # the VUGD crosscheck and the traffic workbooks are .xlsx
+]
+# Fallback PBF reader if the pyrosm build fails — see docs/PHASE0-ROUTING.md.
+# osmium ships a cp311 wheel and needs no compiler, at the cost of assembling the
+# graph by hand from way->node references.
+geo-osmium = [
+    "geopandas>=1.0",
+    "shapely>=2.1",
+    "pyproj>=3.7",
+    "pyogrio>=0.10",
+    "networkx>=3.3",
+    "osmium>=4.3",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The OSM parse takes ~73 s, so it is opt-in rather than part of every run:
+#   pytest              -> fast suite
+#   pytest -m slow      -> the geo smoke test only
+markers = ["slow: needs the 133 MB OSM extract; run deliberately"]
+addopts = "-m 'not slow'"
 pythonpath = ["src"]
 filterwarnings = ["ignore::DeprecationWarning"]

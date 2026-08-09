@@ -3,7 +3,19 @@
 # shap depends on numba/llvmlite, which lag new CPython releases by months.
 
 # Core data stack
-pandas>=2.0
+# Upper bound is deliberate, and not about the API.
+#
+# Windows Smart App Control blocks binaries it cannot attribute to a known
+# publisher, and it judges by REPUTATION — so a freshly released wheel is
+# blocked precisely because few machines have run it yet. pandas 3.0.5 was
+# blocked on this machine ("Une stratégie de contrôle d'application a bloqué ce
+# fichier"), taking geopandas, shap and statsmodels down with it, while 2.3.3
+# loads fine. SAC has no allowlist, so pinning is the fix that does not require
+# turning a security feature off.
+#
+# Revisit once pandas 3.x has been in the wild long enough to earn reputation,
+# or on any machine where SAC is off. See docs/WINDOWS-SMART-APP-CONTROL.md.
+pandas>=2.2,<3.0
 numpy>=1.26,<2.1
 pyarrow>=15.0
 scipy>=1.11

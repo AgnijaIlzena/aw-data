@@ -83,6 +83,7 @@ def clean_eb547(raw: pd.DataFrame, audit: Audit | None = None) -> tuple[pd.DataF
     n0 = len(raw)
 
     # ── 1. Select and rename ────────────────────────────────────────────────
+    #  keeps 53 of 668 columns, gives them readable names
     keep = (
         [c for c in ID_VARS if c in raw.columns]
         + [WEIGHT_NATIONAL, WEIGHT_EU, WEIGHT_EU27_LEGACY]

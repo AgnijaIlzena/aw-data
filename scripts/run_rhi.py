@@ -3,7 +3,7 @@
 Usage:
     python scripts/run_rhi.py [--skip-model]
 
-Writes rhi_by_country, rhi_bands_eu/lv, rhi_binding_eu/lv and the model summary
+Writes rhi_by_country, rhi_bands_eu/lv/fr, rhi_binding_eu/lv/fr and the model summary
 to DuckDB, and prints the headline figures.
 """
 from __future__ import annotations
@@ -12,7 +12,13 @@ import argparse
 
 import pandas as pd
 
-from actionwise.config import DATA_PROCESSED, RESILIENCE_TARGET_DAYS
+from actionwise.config import (
+    COUNTRY_NAMES,
+    DATA_PROCESSED,
+    FOCUS_COUNTRIES,
+    RESILIENCE_TARGET_DAYS,
+    country_suffix,
+)
 from actionwise.db.duckdb_client import write_table
 from actionwise.indices.rhi import (
     DOMAINS,
@@ -33,9 +39,15 @@ def _pct(v: float) -> str:
 
 def main(skip_model: bool = False) -> None:
     df = compute_rhi(pd.read_parquet(PROCESSED_PATH))
-    lv = df[df["country_grouped"] == "LV"]
+    focus = {c: df[df["country_grouped"] == c] for c in FOCUS_COUNTRIES}
 
-    print(f"Loaded {len(df):,} respondents  ·  Latvia n = {len(lv):,}")
+    # (EU, then each focus country) — the scopes every table below iterates over.
+    scopes = [("EU", df, "w_eu")] + [
+        (COUNTRY_NAMES.get(iso, iso), sub, "w_national") for iso, sub in focus.items()
+    ]
+
+    print(f"Loaded {len(df):,} respondents  ·  "
+          + " · ".join(f"{COUNTRY_NAMES.get(i, i)} n = {len(s):,}" for i, s in focus.items()))
     print(f"RHI computable for {int(df['rhi_band'].notna().sum()):,} "
           f"({df['rhi_band'].notna().mean():.0%}); "
           f"{int(df['rhi_partial'].fillna(False).sum()):,} are upper bounds (a domain went unanswered)\n")
@@ -45,12 +57,12 @@ def main(skip_model: bool = False) -> None:
     print(f"RESILIENCE HORIZON — share below the {RESILIENCE_TARGET_DAYS:.0f}-day target")
     print("=" * 96)
     print(f"{'':10s} {'certainly below':>18s} {'at most':>12s}   (band 2 = '2-3 days' straddles the target)")
-    for name, sub, w in (("EU", df, "w_eu"), ("Latvia", lv, "w_national")):
+    for name, sub, w in scopes:
         b = target_bounds(sub, w)
         print(f"{name:10s} {_pct(b['below_target_certain']):>18s} {_pct(b['below_target_upper']):>12s}")
 
     # ── Band distribution ───────────────────────────────────────────────────
-    for name, sub, w in (("EU", df, "w_eu"), ("LATVIA", lv, "w_national")):
+    for name, sub, w in scopes:
         print("\n" + "=" * 96)
         print(f"{name} — distribution of the weakest lifeline")
         print("=" * 96)
@@ -58,7 +70,7 @@ def main(skip_model: bool = False) -> None:
         print(bands.assign(share=bands["share"].map(_pct)).to_string(index=False))
 
     # ── Which lifeline binds ────────────────────────────────────────────────
-    for name, sub, w in (("EU", df, "w_eu"), ("LATVIA", lv, "w_national")):
+    for name, sub, w in scopes:
         print("\n" + "=" * 96)
         print(f"{name} — which lifeline runs out first")
         print("=" * 96)
@@ -118,9 +130,13 @@ def main(skip_model: bool = False) -> None:
     # ── Persist ─────────────────────────────────────────────────────────────
     write_table(ranking, "rhi_by_country")
     write_table(band_distribution(df, "w_eu"), "rhi_bands_eu")
-    write_table(band_distribution(lv, "w_national"), "rhi_bands_lv")
+    for iso, sub in focus.items():
+        write_table(band_distribution(sub, "w_national"),
+                    f"rhi_bands_{country_suffix(iso)}")
     write_table(binding_domain_profile(df, "w_eu"), "rhi_binding_eu")
-    write_table(binding_domain_profile(lv, "w_national"), "rhi_binding_lv")
+    for iso, sub in focus.items():
+        write_table(binding_domain_profile(sub, "w_national"),
+                    f"rhi_binding_{country_suffix(iso)}")
     keep = ["uniqid", "country_grouped", "rhi_band", "rhi_days", "rhi_binding_domain",
             "rhi_n_domains", "rhi_partial", "w_national", "w_eu"]
     write_table(df[[c for c in keep if c in df.columns]], "rhi_respondents")

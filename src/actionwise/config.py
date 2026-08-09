@@ -173,6 +173,27 @@ CONTEXT_ITEMS = {
 ID_VARS = ["uniqid", "serialid", "isocntry"]
 
 # ---------------------------------------------------------------------------
+# Countries reported on their own, beside the EU aggregate.
+#
+# Latvia is the home market. France is included because ActionWise's dossier is
+# submitted in France and a jury will ask about it — and because at n=1,012 it
+# carries essentially the same sample size as Latvia (n=1,008), so the same
+# methods apply without a caveat about precision.
+#
+# Everything downstream loops over this tuple and suffixes its DuckDB tables with
+# the lowercase ISO code (`gap_table_lv`, `gap_table_fr`, ...). Adding a country
+# here is the only change required to report it — which is the point: the
+# alternative was copy-pasting three scripts and letting them drift.
+# ---------------------------------------------------------------------------
+FOCUS_COUNTRIES = ("LV", "FR")
+COUNTRY_NAMES = {"LV": "Latvia", "FR": "France"}
+
+
+def country_suffix(iso: str) -> str:
+    """DuckDB table suffix for a focus country: 'LV' -> 'lv'."""
+    return iso.lower()
+
+# ---------------------------------------------------------------------------
 # Index coefficients — starting values, meant to be re-estimated.
 # Never hardcode these inside an index function.
 # ---------------------------------------------------------------------------

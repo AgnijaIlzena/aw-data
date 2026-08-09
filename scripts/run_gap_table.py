@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-from actionwise.config import DATA_PROCESSED
+from actionwise.config import (
+    COUNTRY_NAMES,
+    DATA_PROCESSED,
+    FOCUS_COUNTRIES,
+    country_suffix,
+)
 from actionwise.db.duckdb_client import write_table
 from actionwise.indices.pgi import gap_cells, gap_table, person_pgi
 from actionwise.weighting import weighted_mean
@@ -27,9 +32,12 @@ def _pct(frame: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
 
 def main() -> None:
     df = pd.read_parquet(PROCESSED_PATH)
-    lv = df[df["country_grouped"] == "LV"]
+    focus = {c: df[df["country_grouped"] == c] for c in FOCUS_COUNTRIES}
 
-    print(f"Loaded {len(df):,} respondents  ·  Latvia n = {len(lv):,}\n")
+    print(f"Loaded {len(df):,} respondents")
+    for iso, sub in focus.items():
+        print(f"  {COUNTRY_NAMES.get(iso, iso):8} n = {len(sub):,}")
+    print()
 
     # ── The four cells ──────────────────────────────────────────────────────
     cells = gap_cells(df, weight="w_eu")
@@ -40,12 +48,15 @@ def main() -> None:
 
     # ── Per-item conversion, EU then Latvia ─────────────────────────────────
     eu = gap_table(df, weight="w_eu")
-    lvt = gap_table(lv, weight="w_national")
+    per_country = {iso: gap_table(sub, weight="w_national") for iso, sub in focus.items()}
 
     show = ["label", "pct_did_overall", "pct_did_if_aware", "pct_did_if_not_aware", "gap", "lift"]
     pct_cols = ["pct_did_overall", "pct_did_if_aware", "pct_did_if_not_aware", "gap"]
 
-    for title, table in (("EU-WIDE", eu), ("LATVIA", lvt)):
+    tables = [("EU-WIDE", eu)] + [
+        (COUNTRY_NAMES.get(iso, iso).upper(), t) for iso, t in per_country.items()
+    ]
+    for title, table in tables:
         print("\n" + "=" * 96)
         print(f"{title} — per measure: how many did it, split by whether they had seen information")
         print("=" * 96)
@@ -55,23 +66,27 @@ def main() -> None:
 
     # ── Person-level PGI ────────────────────────────────────────────────────
     df = df.assign(pgi=person_pgi(df))
-    lv = df[df["country_grouped"] == "LV"]
     print("\n" + "=" * 96)
     print("PGI — per-person share of known-but-not-done measures (unweighted item difficulty)")
     print("=" * 96)
     print(f"  EU mean PGI     : {weighted_mean(df, 'pgi', 'w_eu'):.3f}")
-    print(f"  Latvia mean PGI : {weighted_mean(lv, 'pgi', 'w_national'):.3f}")
+    for iso in FOCUS_COUNTRIES:
+        sub = df[df['country_grouped'] == iso]
+        label = f"{COUNTRY_NAMES.get(iso, iso)} mean PGI"
+        print(f"  {label:16}: {weighted_mean(sub, 'pgi', 'w_national'):.3f}")
     print(f"  measurable for  : {int(df['pgi'].notna().sum()):,} of {len(df):,} respondents")
 
     # ── Persist for the dashboard ───────────────────────────────────────────
     write_table(eu, "gap_table_eu")
-    write_table(lvt, "gap_table_lv")
+    for iso, table in per_country.items():
+        write_table(table, f"gap_table_{country_suffix(iso)}")
     write_table(cells, "gap_cells_eu")
     write_table(
         df[["uniqid", "country_grouped", "pgi", "saw_info", "n_actions", "w_national", "w_eu"]],
         "pgi_respondents",
     )
-    print("\nWrote gap_table_eu, gap_table_lv, gap_cells_eu, pgi_respondents to DuckDB.")
+    suffixes = "/".join(country_suffix(c) for c in FOCUS_COUNTRIES)
+    print(f"\nWrote gap_table_eu/{suffixes}, gap_cells_eu, pgi_respondents to DuckDB.")
 
 
 if __name__ == "__main__":
