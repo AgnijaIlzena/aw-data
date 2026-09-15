@@ -17,6 +17,8 @@ data/db/*
 !data/db/.gitkeep
 *.duckdb
 *.duckdb.wal
+# ...sauf la base publique du tableau de bord (sans microdonnees)
+!data/db/actionwise-public.duckdb
 *.parquet
 
 # Outputs

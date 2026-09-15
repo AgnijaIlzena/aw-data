@@ -11,11 +11,19 @@ import streamlit as st
 
 from actionwise.config import DUCKDB_PATH
 
+# En local, la base complete produite par le pipeline. Sur un hebergeur, seule
+# la base publique est versionnee : meme schema, sans les microdonnees.
+DB_PATH = DUCKDB_PATH
+if not DB_PATH.exists():
+    _public = DUCKDB_PATH.with_name("actionwise-public.duckdb")
+    if _public.exists():
+        DB_PATH = _public
+
 
 @st.cache_data(show_spinner="Reading DuckDB…")
 def q(sql: str) -> pd.DataFrame:
     """Run a read-only query against the shared cache."""
-    con = duckdb.connect(str(DUCKDB_PATH), read_only=True)
+    con = duckdb.connect(str(DB_PATH), read_only=True)
     try:
         return con.execute(sql).fetchdf()
     finally:

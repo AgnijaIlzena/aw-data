@@ -14,7 +14,14 @@ index is defined, and the dashboard is a view over its results.
 """
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+# Le paquet vit dans src/. En local on passe PYTHONPATH=src ; sur un hebergeur
+# on ne controle pas l'environnement, donc on ajoute le chemin nous-memes.
+_SRC = Path(__file__).resolve().parent.parent / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
 import duckdb
 import pandas as pd
