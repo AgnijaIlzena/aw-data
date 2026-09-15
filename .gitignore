@@ -29,3 +29,14 @@ figures/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Outils et assistants locaux — configuration de poste, hors projet
+.claude/
+CLAUDE.md
+.mcp.json
+.cursor/
+.cursorrules
+.aider*
+.continue/
+.github/copilot-instructions.md
+.streamlit/secrets.toml

@@ -1,0 +1,8 @@
+# ActionWise theme — palette relevée sur le logo (autruche corail, lettrage vert ardoise, fond sauge)
+[theme]
+base                     = "light"
+primaryColor             = "#3B5958"   # vert ardoise du lettrage
+backgroundColor          = "#F4F7F6"   # sauge très clair
+secondaryBackgroundColor = "#DCE5E4"   # la sauge exacte du logo
+textColor                = "#2F4A49"
+font                     = "sans serif"
