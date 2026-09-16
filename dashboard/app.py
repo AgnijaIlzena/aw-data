@@ -17,11 +17,22 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Le paquet vit dans src/. En local on passe PYTHONPATH=src ; sur un hebergeur
-# on ne controle pas l'environnement, donc on ajoute le chemin nous-memes.
-_SRC = Path(__file__).resolve().parent.parent / "src"
-if _SRC.is_dir() and str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
+# Deux chemins a poser nous-memes, parce qu'on ne controle pas l'environnement
+# de l'hebergeur :
+#
+#   src/     le paquet `actionwise` y vit. En local, `pip install -e .` l'ajoute
+#            via un .pth ; l'hebergeur n'installe que requirements.txt, jamais
+#            le projet, donc ce .pth n'existe pas la-bas.
+#   la racine  pour le paquet `dashboard` lui-meme. Streamlit n'insere dans
+#            sys.path que le dossier du script (dashboard/), jamais son parent —
+#            cf. streamlit/web/bootstrap.py::_fix_sys_path. Sans cette ligne,
+#            `from dashboard._db import ...` plus bas leve ModuleNotFoundError
+#            des que le repertoire courant n'est pas deja sur sys.path, ce qui
+#            est le cas sur Streamlit Community Cloud.
+_ROOT = Path(__file__).resolve().parent.parent
+for _path in (_ROOT / "src", _ROOT):
+    if _path.is_dir() and str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 import duckdb
 import pandas as pd

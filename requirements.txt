@@ -21,7 +21,10 @@
 
 streamlit>=1.61,<2
 duckdb>=1.5,<2
-plotly>=6.0,<8
+# plotly reste en 6.x : c'est la version testee en local (6.9.0), et 7.0 est
+# un saut majeur qu'on ne veut pas decouvrir en production. Roue pure-python,
+# donc la borne ne coute rien sur 3.14.
+plotly>=6.0,<7
 
 # Same bound as requirements-dev.txt, so the deployed dashboard runs the pandas
 # the pipeline is tested on (2.3.3). It holds on 3.14: pandas ships cp314 wheels
