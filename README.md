@@ -1,18 +1,7 @@
-# ActionWise Data Science
+# ActionWise Data Project
 
 > **The knowing–doing gap.** Europeans know what to do to prepare for a crisis.
 > Most still haven't done it. Who doesn't act, and what moves them?
-
-Specs: `../ACTIONWISE/DATA_PROJECT_BRIEF.md` · `../ACTIONWISE/DATA_PROJECT_ONEPAGER.md`
-
-A second project (time-to-help — minutes until rescue arrives, against the target
-Latvian law sets) was built and then dropped: it modelled a single-incident,
-business-as-usual response, which doesn't speak to the compound-crisis scenarios
-(flood, conflict, infrastructure attack) ActionWise is actually about. Its code is
-no longer in this repository; see git history (`project 2 implemented - geo block`)
-if it needs revisiting.
-
----
 
 ## Status
 
@@ -145,10 +134,7 @@ pip install --dry-run --ignore-installed --only-binary=:all:     --python-versio
 ## Model cards
 
 `docs/model-cards/` is **generated from DuckDB**, never hand-written — rerun
-`build_model_cards.py` and the numbers update themselves. This is a direct
-response to `virality-code`, whose README documented a Random Forest while the
-code ran Gradient Boosting, because the docs were written once and the code
-moved on.
+`build_model_cards.py` and the numbers update themselves. 
 
 `00`–`03`: pipeline, RHI, PRI, PGI.
 
@@ -211,19 +197,3 @@ dashboard/  app.py  _db.py       8 pages, DuckDB-only
 docs/model-cards/                generated, not hand-written
 tests/
 ```
-
-## Known limitations
-
-Stated here rather than discovered at a viva.
-
-- **Self-reported throughout.** Nobody checked a cupboard. These are *perceived* horizons
-  and *claimed* measures.
-- **One snapshot** (Feb–Mar 2024). No trend, no causal design — lift is association.
-- **Latvia is 1,008 respondents.** Fine nationally, thin by age band; cells under 100 are
-  flagged `thin_cell` and the tables always carry an `all` row to fall back on.
-- **The action battery has no time window** — a lifetime stock, not a 12-month flow, so it
-  is not comparable to FEMA's equivalent without adjustment.
-- **The battery is not unidimensional.** Discrimination splits into supplies (sharp) and
-  engagement (flat); PRI is dominated by the former. See `docs/model-cards/02-pri.md`.
-- **The composite weights on the dashboard are a judgement, not an estimate** — the only
-  number here that is not derived from data, which is exactly why they are sliders.
