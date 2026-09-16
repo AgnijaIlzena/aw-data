@@ -62,9 +62,16 @@ Requires **Python 3.11** — not the system 3.14, whose wheel coverage for
 ```bash
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1        # PowerShell
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 pip install -e .
 ```
+
+Two dependency files, on purpose:
+
+| File | Holds | Installed by |
+|---|---|---|
+| `requirements.txt` | dashboard runtime only — duckdb, pandas, plotly, streamlit | Streamlit Community Cloud |
+| `requirements-dev.txt` | the above **plus** the modelling stack (scikit-learn, lightgbm, shap, statsmodels, girth, pyreadstat, jupyter) | you, locally |
 
 ## Reproduce from scratch
 
@@ -88,6 +95,52 @@ The pipeline prints an **audit trail** — every step's rows in, rows out, cells
 nulled, and why. Nothing is dropped silently.
 
 The gate exits non-zero on failure, so it can be wired into CI.
+
+## Deployment
+
+The dashboard is deployed on Streamlit Community Cloud from `main`, main module
+`dashboard/app.py`. It runs against `data/db/actionwise-public.duckdb` — the
+same schema as the full base, without the microdata — which is the one data file
+this repo versions; `dashboard/_db.py` falls back to it when the full base built
+by the pipeline is absent, which is always the case on the host.
+
+**The host installs `requirements.txt`, not `requirements-dev.txt`, and that is
+the point.** Community Cloud fixes the Python version at deploy time and it
+cannot be changed afterwards — changing it means deleting the app and
+redeploying. This app landed on **Python 3.14**, and one line in the old
+single-file setup was fatal there:
+
+```
+numpy>=1.26,<2.1
+```
+
+numpy publishes no cp314 wheel below **2.3.2**, so that upper bound — which
+exists for a local Windows reason, not an API one, see
+[docs/WINDOWS-SMART-APP-CONTROL.md](docs/WINDOWS-SMART-APP-CONTROL.md) — could
+not be satisfied by any wheel. uv fell back to compiling numpy 2.0.2 from
+source, ground on for 49 minutes, failed, and left the environment empty. The
+app then started against the bare base image and died on its first
+non-preinstalled import, `import duckdb`, with `ModuleNotFoundError` — which
+points at duckdb only because duckdb is imported first, not because duckdb was
+ever the problem.
+
+It was the one real blocker: every other pin in the stack, `lightgbm` and
+`shap` and `girth` included, does resolve to a wheel on 3.14.
+
+numpy is a *pipeline* dependency; the dashboard never imports it. Confining it —
+and the rest of the modelling stack — to `requirements-dev.txt` keeps the cap
+where it is useful and out of the deploy. The runtime file resolves to **40
+packages, all wheels**, against 145 before, and installs in seconds. `pandas`
+keeps its `<3.0` bound in both files: unlike numpy, pandas ships cp314 wheels
+from 2.3.3, so the deployed dashboard runs the same pandas the pipeline is
+tested on.
+
+Verify before pushing a dependency change — this resolves the runtime exactly as
+the host would, and fails loudly if anything would need a source build:
+
+```bash
+pip install --dry-run --ignore-installed --only-binary=:all:     --python-version 3.14 --target /tmp/probe -r requirements.txt
+```
 
 ## Model cards
 

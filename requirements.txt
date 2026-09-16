@@ -1,48 +1,29 @@
-# ActionWise Data Science — dependencies
-# NB: this project is pinned to Python 3.11, not the system 3.14.
-# shap depends on numba/llvmlite, which lag new CPython releases by months.
+# ActionWise — dashboard RUNTIME dependencies.
+#
+# Streamlit Community Cloud installs THIS file, against the Python version
+# picked at deploy time (currently 3.14), and Python cannot be changed after
+# deployment. Every pin below therefore needs a wheel for that version: with no
+# wheel, uv builds from source, and the deploy burns ~50 minutes and then dies.
+#
+# That is exactly what the old single-file setup did. The blocker was one line —
+# `numpy>=1.26,<2.1`, whose upper bound exists for a local Windows reason (see
+# docs/WINDOWS-SMART-APP-CONTROL.md). numpy publishes no cp314 wheel below
+# 2.3.2, so the cap was unsatisfiable by wheel, numpy 2.0.2 went to a source
+# build, the install failed, and the app started against an empty environment
+# and died on its first import. numpy is a pipeline dependency, not a dashboard
+# one, so it now lives in requirements-dev.txt where the cap costs nothing.
+#
+# The dashboard reads DuckDB and nothing else. It imports no scikit-learn, no
+# lightgbm, no shap, no statsmodels, no girth, no pyreadstat — the whole
+# modelling stack is in requirements-dev.txt and has no business here. Actual
+# import surface: duckdb, pandas, plotly, streamlit (+ actionwise.config, which
+# imports only pathlib). 40 packages resolve here, against 145 before.
 
-# Core data stack
-# Upper bound is deliberate, and not about the API.
-#
-# Windows Smart App Control blocks binaries it cannot attribute to a known
-# publisher, and it judges by REPUTATION — so a freshly released wheel is
-# blocked precisely because few machines have run it yet. pandas 3.0.5 was
-# blocked on this machine ("Une stratégie de contrôle d'application a bloqué ce
-# fichier"), taking geopandas, shap and statsmodels down with it, while 2.3.3
-# loads fine. SAC has no allowlist, so pinning is the fix that does not require
-# turning a security feature off.
-#
-# Revisit once pandas 3.x has been in the wild long enough to earn reputation,
-# or on any machine where SAC is off. See docs/WINDOWS-SMART-APP-CONTROL.md.
+streamlit>=1.61,<2
+duckdb>=1.5,<2
+plotly>=6.0,<8
+
+# Same bound as requirements-dev.txt, so the deployed dashboard runs the pandas
+# the pipeline is tested on (2.3.3). It holds on 3.14: pandas ships cp314 wheels
+# from 2.3.3, unlike numpy.
 pandas>=2.2,<3.0
-numpy>=1.26,<2.1
-pyarrow>=15.0
-scipy>=1.11
-
-# Survey data (SPSS .sav)
-pyreadstat>=1.2
-
-# Storage / shared cache
-duckdb>=1.0
-
-# Modelling
-scikit-learn>=1.3
-statsmodels>=0.14        # OrderedModel — ordered probit for RHI
-lightgbm>=4.0            # PGI drivers
-shap>=0.44               # driver attribution
-girth>=0.8               # 2PL IRT (marginal ML); scipy fallback in models/irt.py
-
-# Dashboard
-streamlit>=1.30
-plotly>=5.0
-
-# Notebooks
-jupyter>=1.0
-matplotlib>=3.8
-
-# Docs — markdown tables in the generated model cards
-tabulate>=0.9
-
-# Tests
-pytest>=8.0

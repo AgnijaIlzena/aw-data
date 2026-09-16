@@ -68,7 +68,11 @@ machine while the venv copy was blocked, which is what identified the cause.
 python -m pip install "pandas>=2.2,<3.0"
 ```
 
-`requirements.txt` carries the bound and the reason. **300 tests pass on 2.3.3**, so
+Both `requirements.txt` and `requirements-dev.txt` carry the bound and the reason.
+It is safe in both: pandas ships cp314 wheels from 2.3.3, so the cap costs nothing
+on Streamlit Community Cloud. The **numpy** cap below is a different story — it has
+no cp314 wheel, and it broke the deployment until numpy was confined to the dev
+file. See "Deployment" in the README. **300 tests pass on 2.3.3**, so
 nothing in either project depends on pandas 3 behaviour. Two places were already written
 to tolerate both, and stayed correct:
 
