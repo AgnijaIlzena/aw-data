@@ -13,5 +13,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+# "src" pour le paquet `actionwise`, "." pour le paquet `dashboard`, que les
+# tests de rendu importent. Sans ".", la suite ne passe que lancee via
+# `python -m pytest` depuis la racine (qui ajoute le repertoire courant a
+# sys.path) et casse avec le script `pytest`.
+pythonpath = ["src", "."]
 filterwarnings = ["ignore::DeprecationWarning"]

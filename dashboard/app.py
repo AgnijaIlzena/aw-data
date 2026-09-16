@@ -43,7 +43,6 @@ import streamlit as st
 
 from actionwise.config import (
     COUNTRY_NAMES,
-    DUCKDB_PATH,
     FOCUS_COUNTRIES,
     RESILIENCE_TARGET_DAYS,
 )
@@ -109,7 +108,7 @@ px.defaults.template = "actionwise"
 
 # Defined once in dashboard/_db.py, re-exported here because every page below
 # already calls them by these names.
-from dashboard._db import available_tables, q, require  # noqa: E402
+from dashboard._db import DB_PATH, available_tables, q, require  # noqa: E402
 from dashboard.i18n import LANGS, set_lang, t  # noqa: E402
 
 
@@ -650,8 +649,12 @@ def main() -> None:
         st.sidebar.title(t('ActionWise'))
     st.sidebar.caption(t('Readiness indices from Eurobarometer ZA8841'))
 
-    if not DUCKDB_PATH.exists():
-        st.error(f"No database at {DUCKDB_PATH}. Run `python scripts/run_pipeline.py` first.")
+    if DB_PATH is None or not DB_PATH.exists():
+        st.error(
+            "No database found. Expected the pipeline's `actionwise.duckdb` or the "
+            "versioned `actionwise-public.duckdb` in `data/db/`. "
+            "Run `python scripts/run_pipeline.py` first."
+        )
         return
 
     pages = {t(name): fn for name, fn in PAGES.items()}

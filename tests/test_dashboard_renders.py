@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from actionwise.config import DUCKDB_PATH
+from dashboard._db import DB_PATH
 
 # AppTest resolves relative paths against the *calling* file, so pass an absolute one.
 APP = str(Path(__file__).resolve().parents[1] / "dashboard" / "app.py")
@@ -27,9 +27,12 @@ PAGES = [
     "Method & limitations",
 ]
 
+# On interroge la base RESOLUE, pas `DUCKDB_PATH` : sur un clone frais, seule
+# `actionwise-public.duckdb` est versionnee, et c'est exactement la configuration
+# de l'hebergeur. Sauter dans ce cas revenait a ne jamais tester le deploiement.
 pytestmark = pytest.mark.skipif(
-    not DUCKDB_PATH.exists(),
-    reason="run the pipeline scripts first to build data/db/actionwise.duckdb",
+    DB_PATH is None or not DB_PATH.exists(),
+    reason="no DuckDB available: build it with the pipeline scripts",
 )
 
 
